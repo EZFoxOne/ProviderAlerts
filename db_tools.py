@@ -47,76 +47,40 @@ def update_guild(guild_id, alert_channel=None, enable=None):
     conn.close()
 
 
-def get_enabled_guilds():
+def get_providers_for_alert():
     conn, c = create_connection('provider')
-    enabled_guilds = {g[0]: [g[1], g[2]] for g in c.execute("SELECT * FROM guilds WHERE enabled = '1'").fetchall()}
+    data = c.execute("SELECT registered_providers.guild_id, registered_providers.user_id, "
+                     "registered_providers.provider_id, provider.status, registered_providers.notify, "
+                     "guilds.alert_channel, provider.last_scanned "
+                     "FROM registered_providers "
+                     "INNER JOIN guilds ON registered_providers.guild_id = guilds.guild_id "
+                     "INNER JOIN provider ON registered_providers.provider_id = provider.provider_id "
+                     "WHERE provider.status != '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                     "AND (date('now') > strftime('%Y-%m-%d %H:%M:%f', registered_providers.last_notified)"
+                     " + registered_providers.interval)").fetchall()
     conn.close()
-    return enabled_guilds
-
-
-def get_nonactive_providers():
-    conn, c = create_connection('provider')
-    nonactive_providers = {p[0]: [p[1], p[2], p[3]] for p in
-                           c.execute("SELECT * FROM provider WHERE status != '1'").fetchall()}
-    conn.close()
-    return nonactive_providers
-
-
-def get_registered_providers():
-    conn, c = create_connection('provider')
-    registered_providers = c.execute("SELECT * FROM registered_providers").fetchall()
-    conn.close()
-    return registered_providers
+    return data
 
 
 async def check_providers(client):
     print("Checking providers")
 
+    providers = get_providers_for_alert()
     conn, c = create_connection('provider')
 
-    enabled_guilds = get_enabled_guilds()
-    alert_list = get_nonactive_providers()
-    registered_providers = get_registered_providers()
+    for p in providers:
+        guild_id, user_id, provider_id, status, notify, alert_channel, last_scanned = \
+            p[0], p[1], p[2], p[3], p[4], p[5], p[6]
+        status = "Passive" if status == "-1" else "Offline"
+        print("Sending alert...")
+        channel = client.get_channel(int(alert_channel))
+        last_scanned = int(int(last_scanned) / 1000)
+        embed = build_alert_embed(user_id, provider_id, status, last_scanned)
+        await channel.send(content=f"<@{user_id}>" if notify else None,
+                           embed=embed)
 
-    for p in registered_providers:
-
-        guild_id, user_id, provider_id, notify, interval, last_notified = p[0], p[1], p[2], p[3], p[4], p[5]
-
-        if guild_id not in enabled_guilds:
-            print(f"Guild ({guild_id}) not enabled for provider {provider_id}, skipping alert...")
-            if not dev_mode:
-                continue
-
-        alert_list_keys = list(alert_list.keys())
-        if provider_id in alert_list_keys:
-
-            status = "Passive" if alert_list[provider_id] == "-1" else "Offline"
-
-            print(f"Provider {provider_id} is {status}")
-            print(f"Dev Mode: {dev_mode}")
-
-            if last_notified == "0":
-                last_notified = datetime.now() - timedelta(minutes=int(interval) + 1)
-            else:
-                last_notified = datetime.fromisoformat(last_notified)
-
-            notified_expiration = datetime.now() - timedelta(minutes=int(interval))
-
-            if last_notified < notified_expiration or dev_mode:
-
-                guild_alert_channel = enabled_guilds[guild_id][0]
-
-                if guild_alert_channel != "0":
-
-                    print("Sending alert...")
-                    channel = client.get_channel(int(guild_alert_channel))
-                    last_scanned = int(int(alert_list[provider_id][2])/1000)
-                    embed = build_alert_embed(user_id, provider_id, status, last_scanned)
-                    await channel.send(content=f"<@{user_id}>" if notify else None,
-                                       embed=embed)
-
-                    c.execute("UPDATE registered_providers SET last_notified = ? WHERE provider_id = ?",
-                              (datetime.now(), provider_id))
+        c.execute("UPDATE registered_providers SET last_notified = ? WHERE provider_id = ?",
+                  (datetime.now(), provider_id))
 
     conn.commit()
 
