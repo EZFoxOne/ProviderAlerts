@@ -37,7 +37,7 @@ async def enable_call(interaction: Interaction, enable: bool = True):
     if interaction.user.guild_permissions.administrator or interaction.user.id == 349706451805274123:
         update_guild(guild_id=interaction.guild.id, enable=enable)
         embed = Embed(description=f"Bot {'enabled' if enable else 'disabled'}", color=0x00ff00)
-        await interaction.response.send_message(embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
         embed = Embed(description="You do not have permission to use this command", color=0xff0000)
         await interaction.response.send_message(embed=embed, ephemeral=True)
