@@ -20,7 +20,6 @@ A simple Discord bot allowing users to register their ScPrime provider IDs to re
  - /register-provider
    - register a provider for alerts
      - Optional: notify allows you to turn pings on or off for alerts
-     - Optional: set a custom interval for how often you should be alerted during consistent downtime
      - **NOTE**: registering an existing provider will update its settings
  - /deregister-provider -- remove a provider from alerts
  - /list_providers -- view all of your registered providers
