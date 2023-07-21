@@ -62,7 +62,7 @@ async def register_commands(guild):
         print(f"Failed to register commands for guild: {guild.id}")
 
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=15)
 async def run_checks():
     update_provider_stats()
     await check_providers(client)
