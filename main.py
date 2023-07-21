@@ -2,7 +2,7 @@ from discord import Client, Intents, Interaction, Embed, app_commands
 from discord.ext import tasks
 from config import bot_token
 from db_tools import register_provider, check_providers, update_provider_stats, \
-    update_guild, initialize_guild, deregister_provider
+    update_guild, initialize_guild, deregister_provider, list_providers
 
 intents = Intents.default()
 client = Client(intents=intents)
@@ -43,12 +43,19 @@ async def enable_call(interaction: Interaction, enable: bool = True):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(name="list-providers", description="Returns a list containing all of your registered providers.")
+async def list_providers_call(interaction: Interaction):
+    embed = list_providers(interaction.guild_id, interaction.user.id)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 async def register_commands(guild):
     try:
         tree.add_command(register_provider_call, guild=guild)
         tree.add_command(enable_call, guild=guild)
         tree.add_command(set_alert_channel_call, guild=guild)
         tree.add_command(deregister_provider_call, guild=guild)
+        tree.add_command(list_providers_call, guild=guild)
         await tree.sync(guild=guild)
     except Exception as e:
         print(e)
