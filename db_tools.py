@@ -177,5 +177,21 @@ def deregister_provider(guild_id, user_id, provider_id):
     return embed
 
 
+def list_providers(guild_id, user_id):
+    conn, c = create_connection("provider")
+    providers = c.execute("SELECT * FROM registered_providers WHERE guild_id = ? AND user_id = ?",
+                              [guild_id, user_id]).fetchall()
+    if len(providers) == 0:
+        return Embed(title="No Providers Registered",
+                     description=f"You don't currently have any providers registered in this server.",
+                     color=Color.red())
+    embed = Embed(title="Registered Providers", color=Color.red())
+    for provider in providers:
+        embed.add_field(name=provider[2],
+                        value=f"Notify: {'Yes' if provider[3] == 1 else 'No'}\n"
+                              f"Interval: {provider[4]} minute(s)", inline=False)
+    return embed
+
+
 def build_provider_link(url):
     return f"https://grafana.scpri.me/d/Cg7V28sMk/provider-detail?var-provider={url}&kiosk=tv&orgId=1"
