@@ -1,5 +1,5 @@
 # ProviderAlerts
-A simple Discord bot allowing users to register their provider IDs to receive pings in a discord server's channel when their provider is not 'Active'
+A simple Discord bot allowing users to register their ScPrime provider IDs to receive pings in a discord server's channel when their provider is not 'Active'
 
 *Installation Instructions*
 
