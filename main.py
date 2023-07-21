@@ -10,8 +10,9 @@ tree = app_commands.CommandTree(client)
 
 
 @tree.command(name="register-provider", description="Register an SCP Storage Provider to be monitored.")
-async def register_provider_call(interaction: Interaction, provider_id: str, notify: bool = True, interval: int = 60):
-    embed = register_provider(interaction.guild_id, interaction.user.id, provider_id, notify, interval)
+async def register_provider_call(interaction: Interaction, provider_id: str, notify: bool = True):
+    private = False
+    embed = register_provider(interaction.guild_id, interaction.user.id, provider_id, notify, private)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

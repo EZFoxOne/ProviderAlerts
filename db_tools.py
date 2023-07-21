@@ -24,7 +24,8 @@ def create_provider_tables():
         "last_scanned text)")
     c.execute(
         "CREATE TABLE IF NOT EXISTS registered_providers (guild_id integer, user_id integer, provider_id text, "
-        "notify integer, interval real, last_notified text, UNIQUE (guild_id, user_id, provider_id))")
+        "notify integer, last_notified text, last_status text, private integer, "
+        "UNIQUE (guild_id, user_id, provider_id))")
     conn.commit()
     conn.close()
 
@@ -47,40 +48,101 @@ def update_guild(guild_id, alert_channel=None, enable=None):
     conn.close()
 
 
-def get_providers_for_alert():
+def get_offline_providers_for_alert():
     conn, c = create_connection('provider')
-    data = c.execute("SELECT registered_providers.guild_id, registered_providers.user_id, "
-                     "registered_providers.provider_id, provider.status, registered_providers.notify, "
-                     "guilds.alert_channel, provider.last_scanned "
-                     "FROM registered_providers "
-                     "INNER JOIN guilds ON registered_providers.guild_id = guilds.guild_id "
-                     "INNER JOIN provider ON registered_providers.provider_id = provider.provider_id "
-                     "WHERE provider.status != '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
-                     "AND (date('now') > strftime('%Y-%m-%d %H:%M:%f', registered_providers.last_notified)"
-                     " + registered_providers.interval)").fetchall()
+    providers = c.execute("SELECT "
+                          "registered_providers.guild_id, "
+                          "registered_providers.user_id, "
+                          "registered_providers.provider_id, "
+                          "provider.status, "
+                          "registered_providers.notify, "
+                          "guilds.alert_channel, "
+                          "provider.last_scanned, "
+                          "registered_providers.private "
+                          "FROM registered_providers "
+                          "INNER JOIN guilds ON registered_providers.guild_id = guilds.guild_id "
+                          "INNER JOIN provider ON registered_providers.provider_id = provider.provider_id "
+                          "WHERE provider.status != '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                          "AND (date('now') >= "
+                          "strftime('%Y-%m-%d %H:%M:%f', registered_providers.last_notified, '+24 hours'))").fetchall()
+    report_offline = c.execute("SELECT registered_providers.guild_id, registered_providers.user_id, "
+                               "registered_providers.provider_id, provider.status, registered_providers.notify, "
+                               "guilds.alert_channel, provider.last_scanned "
+                               "FROM registered_providers "
+                               "INNER JOIN guilds ON registered_providers.guild_id = guilds.guild_id "
+                               "INNER JOIN provider ON registered_providers.provider_id = provider.provider_id "
+                               "WHERE provider.status != '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                               "AND (date('now') >= "
+                               "strftime('%Y-%m-%d %H:%M:%f', registered_providers.last_notified, '+24 hours'))").fetchall()
     conn.close()
-    return data
+    return providers
+
+
+def get_online_providers_for_alert():
+    conn, c = create_connection('provider')
+    providers = c.execute("SELECT "
+                          "registered_providers.guild_id, "
+                          "registered_providers.user_id, "
+                          "registered_providers.provider_id, "
+                          "provider.status, "
+                          "registered_providers.notify, "
+                          "guilds.alert_channel, "
+                          "provider.last_scanned, "
+                          "registered_providers.last_status, "
+                          "registered_providers.private "
+                          "FROM registered_providers "
+                          "INNER JOIN guilds on registered_providers.guild_id = guilds.guild_id "
+                          "INNER JOIN provider on registered_providers.provider_id = provider.provider_id "
+                          "WHERE provider.status = '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                          "AND registered_providers.last_status != '1'").fetchall()
+    conn.close()
+    return providers
 
 
 async def check_providers(client):
     print("Checking providers")
 
-    providers = get_providers_for_alert()
+    offline_providers = get_offline_providers_for_alert()
+    online_providers = get_online_providers_for_alert()
+
     conn, c = create_connection('provider')
 
-    for p in providers:
-        guild_id, user_id, provider_id, status, notify, alert_channel, last_scanned = \
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6]
-        status = "Passive" if status == "-1" else "Offline"
-        print("Sending alert...")
+    for p in offline_providers:
+        guild_id, user_id, provider_id, status, notify, alert_channel, last_scanned, private = \
+            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]
+        status_text = "Passive" if status == "-1" else "Offline"
+        print("Sending offline alert...")
         channel = client.get_channel(int(alert_channel))
         last_scanned = int(int(last_scanned) / 1000)
-        embed = build_alert_embed(user_id, provider_id, status, last_scanned)
+        embed = build_offline_alert_embed(user_id, provider_id, status_text, last_scanned)
         await channel.send(content=f"<@{user_id}>" if notify else None,
                            embed=embed)
 
-        c.execute("UPDATE registered_providers SET last_notified = ? WHERE provider_id = ?",
-                  (datetime.now(), provider_id))
+        c.execute("UPDATE "
+                  "registered_providers "
+                  "SET last_notified = ?, "
+                  "last_status = ? "
+                  "WHERE provider_id = ? "
+                  "AND guild_id = ? "
+                  "AND user_id = ?",
+                  (datetime.now(), status, provider_id, guild_id, user_id))
+
+    for p in online_providers:
+        guild_id, user_id, provider_id, status, notify, alert_channel, last_scanned, last_status, private = \
+            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]
+
+        print("Sending online alert...")
+        channel = client.get_channel(int(alert_channel))
+        embed = build_online_alert_embed(user_id, provider_id)
+        await channel.send(content=f"<@{user_id}>" if notify else None,
+                           embed=embed)
+
+        c.execute("UPDATE registered_providers "
+                  "SET last_status = ? "
+                  "WHERE provider_id = ? "
+                  "AND guild_id = ? "
+                  "AND user_id = ?",
+                  ("1", provider_id, guild_id, user_id))
 
     conn.commit()
 
@@ -135,35 +197,45 @@ def update_provider_stats():
     print("Provider data updated.")
 
 
-def build_alert_embed(user_id, provider_id, status, last_scanned):
+def build_offline_alert_embed(user_id, provider_id, status, last_scanned):
     embed = Embed(color=Color.red())
     embed.add_field(name="Provider ID", value=f"`{provider_id}`", inline=False)
     embed.add_field(name="Status", value=f"`{status}`", inline=False)
-    embed.add_field(name="Last Scanned", value=f"<t:{last_scanned}>", inline=False)
+    embed.add_field(name="Last seen online and active", value=f"<t:{last_scanned}>", inline=False)
     embed.add_field(name=f"Alert registered by", value=f"<@{user_id}>")
     embed.add_field(name="Grafana Link", value=f"[Click Here to Visit]({build_provider_link(provider_id)})")
     return embed
 
 
-def register_provider(guild_id, user_id, provider_id, notify, interval):
+def build_online_alert_embed(user_id, provider_id):
+    embed = Embed(color=Color.green())
+    embed.add_field(name="Provider ID", value=f"`{provider_id}`", inline=False)
+    embed.add_field(name="Status", value="Back Online!", inline=False)
+    embed.add_field(name=f"Alert registered by", value=f"<@{user_id}>")
+    embed.add_field(name="Grafana Link", value=f"[Click Here to Visit]({build_provider_link(provider_id)})")
+    return embed
+
+
+def register_provider(guild_id, user_id, provider_id, notify, private):
     conn, c = create_connection("provider")
     existing_data = c.execute("SELECT * FROM provider WHERE provider_id = ?", [provider_id]).fetchall()
     c.execute(
-        "INSERT OR REPLACE INTO registered_providers (guild_id, user_id, provider_id, notify, interval, last_notified) "
-        "VALUES (?, ?, ?, ?, ?, ?)", (guild_id, user_id, provider_id, notify, interval, 0))
+        "INSERT OR REPLACE INTO registered_providers (guild_id, user_id, provider_id, notify, private, last_notified) "
+        "VALUES (?, ?, ?, ?, ?, ?)", (guild_id, user_id, provider_id, notify, private, 0))
     conn.commit()
     conn.close()
     embed = Embed(title=f"{'Successful Registration' if len(existing_data) != 0 else 'Updated Registration'}")
     embed.add_field(name="Provider ID", value=f"`{provider_id}`", inline=False)
     embed.add_field(name="Notify", value="Yes" if notify else "No", inline=False)
-    embed.add_field(name="Interval", value=f"{interval} minute(s)", inline=False)
+    embed.add_field(name="Private", value='Yes' if private else 'No', inline=False)
     return embed
 
 
 def deregister_provider(guild_id, user_id, provider_id):
     conn, c = create_connection("provider")
-    existing_data = c.execute("SELECT * FROM registered_providers WHERE provider_id = ? AND guild_id = ? AND user_id = ?",
-                              [provider_id, guild_id, user_id]).fetchall()
+    existing_data = c.execute(
+        "SELECT * FROM registered_providers WHERE provider_id = ? AND guild_id = ? AND user_id = ?",
+        [provider_id, guild_id, user_id]).fetchall()
     if len(existing_data) == 0:
         return Embed(title="De-registration Failed",
                      description=f"You don't currently have a provider with ID {provider_id} registered in this server.",
@@ -172,7 +244,7 @@ def deregister_provider(guild_id, user_id, provider_id):
               (guild_id, user_id, provider_id))
     conn.commit()
     conn.close()
-    embed = Embed(title="Successful De-registration",color=Color.red())
+    embed = Embed(title="Successful De-registration", color=Color.red())
     embed.add_field(name="Provider ID", value=f"`{provider_id}`", inline=False)
     return embed
 
@@ -180,7 +252,7 @@ def deregister_provider(guild_id, user_id, provider_id):
 def list_providers(guild_id, user_id):
     conn, c = create_connection("provider")
     providers = c.execute("SELECT * FROM registered_providers WHERE guild_id = ? AND user_id = ?",
-                              [guild_id, user_id]).fetchall()
+                          [guild_id, user_id]).fetchall()
     if len(providers) == 0:
         return Embed(title="No Providers Registered",
                      description=f"You don't currently have any providers registered in this server.",
@@ -195,3 +267,35 @@ def list_providers(guild_id, user_id):
 
 def build_provider_link(url):
     return f"https://grafana.scpri.me/d/Cg7V28sMk/provider-detail?var-provider={url}&kiosk=tv&orgId=1"
+
+
+def sql_test():
+    conn, c = create_connection('provider')
+    report_offline = c.execute("SELECT registered_providers.guild_id, registered_providers.user_id, "
+                               "registered_providers.provider_id, provider.status, registered_providers.notify, "
+                               "guilds.alert_channel, provider.last_scanned "
+                               "FROM registered_providers "
+                               "INNER JOIN guilds ON registered_providers.guild_id = guilds.guild_id "
+                               "INNER JOIN provider ON registered_providers.provider_id = provider.provider_id "
+                               "WHERE provider.status != '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                               "AND (date('now') >= "
+                               "strftime('%Y-%m-%d %H:%M:%f', registered_providers.last_notified, '+24 hours'))").fetchall()
+    report_online = c.execute("SELECT "
+                              "registered_providers.guild_id, "
+                              "registered_providers.user_id, "
+                              "registered_providers.provider_id, "
+                              "provider.status, "
+                              "registered_providers.notify, "
+                              "guilds.alert_channel, "
+                              "provider.last_scanned "
+                              "FROM registered_providers "
+                              "INNER JOIN guilds on registered_providers.guild_id = guilds.guild_id "
+                              "INNER JOIN provider on registered_providers.provider_id = provider.provider_id "
+                              "WHERE provider.status = '1' AND guilds.enabled = 1 AND guilds.alert_channel != 0 "
+                              "AND registered_providers.last_status != '1'").fetchall()
+    print(report_offline)
+    print(report_online)
+
+
+if __name__ == "__main__":
+    sql_test()
