@@ -1,5 +1,6 @@
 import sqlite3
-from discord import Embed, Color
+from discord import Embed, Color, ButtonStyle
+from discord.ui import View, Button
 from datetime import datetime, timedelta
 from json import dumps
 from requests.structures import CaseInsensitiveDict
@@ -218,7 +219,12 @@ def build_online_alert_embed(user_id, provider_id):
 
 def register_provider(guild_id, user_id, provider_id, notify, private):
     conn, c = create_connection("provider")
-    existing_data = c.execute("SELECT * FROM provider WHERE provider_id = ?", [provider_id]).fetchall()
+    known_providers = c.execute("SELECT provider_id FROM provider WHERE provider_id = ?", [provider_id]).fetchall()
+    if len(known_providers) == 0:
+        return Embed(title="Registration Failed",
+                     description=f"Provider with ID `{provider_id}` is not currently being tracked by the network.",
+                     color=Color.red())
+    existing_data = c.execute("SELECT * FROM registered_providers WHERE provider_id = ?", [provider_id]).fetchall()
     c.execute(
         "INSERT OR REPLACE INTO registered_providers (guild_id, user_id, provider_id, notify, private, last_notified) "
         "VALUES (?, ?, ?, ?, ?, ?)", (guild_id, user_id, provider_id, notify, private, 0))
@@ -260,9 +266,46 @@ def list_providers(guild_id, user_id):
     embed = Embed(title="Registered Providers", color=Color.red())
     for provider in providers:
         embed.add_field(name=provider[2],
-                        value=f"Notify: {'Yes' if provider[3] == 1 else 'No'}\n"
-                              f"Interval: {provider[4]} minute(s)", inline=False)
+                        value=f"Notify: {'Yes' if provider[3] == 1 else 'No'}")
     return embed
+
+
+def list_all_providers(guild_id, start=0, view=None):
+    conn, c = create_connection("provider")
+    providers = c.execute("SELECT * FROM registered_providers WHERE guild_id = ? ORDER BY user_id", [guild_id]).fetchall()
+    if len(providers) == 0:
+        return Embed(title="No Providers Registered",
+                     description=f"There are no providers registered in this server.",
+                     color=Color.red())
+    view = View()
+    embed = Embed(title="Registered Providers", color=Color.red())
+    count = 0
+    for provider in providers:
+        count += 1
+        if count < start:
+            continue
+        embed.add_field(name=provider[2],
+                        value=f"Notify: {'Yes' if provider[3] == 1 else 'No'}",
+                        inline=False)
+        if count == 25:
+            button = Button(style=ButtonStyle.green, label="Next", custom_id="more_providers")
+            button.start = start + count
+            button.guild_id = guild_id
+            button.callback = list_all_providers_callback
+            view.add_item(button)
+            break
+        if start != 0:
+            button = Button(style=ButtonStyle.blurple, label="Previous", custom_id="more_providers")
+            button.callback = list_all_providers_callback
+            button.start = start - count
+            button.guild_id = guild_id
+            button.start = start - 25
+            view.add_item(button)
+    return embed, view
+
+
+def list_all_providers_callback(interaction, guild_id, start=0, view=None):
+    list_all_providers(guild_id, start, view)
 
 
 def build_provider_link(url):
